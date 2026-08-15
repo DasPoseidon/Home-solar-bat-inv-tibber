@@ -24,11 +24,25 @@
 #   number.inverter_buffer
 #   number.inverter_manual_power_demand
 #   number.inverter_max_power_demand
+#
+# Die forecast.solar-Prognose-Entity ist NICHT hart verdrahtet, sondern über
+# den Helper input_text.nulleinspeisung_solarprognose_entity_id einstellbar
+# (Default-Vermutung: sensor.energy_production_today_remaining - je nach
+# Name/Anzahl der forecast.solar-Instanzen kann der tatsächliche Name
+# abweichen, z. B. sensor.<name>_energy_production_today_remaining bei
+# benannten Instanzen oder bei mehreren PV-Ausrichtungen eine Summe daraus).
+# Im Dashboard unter "Einstellungen - Solarprognose" anpassbar, ohne die
+# YAML-Datei zu editieren.
 
 input_boolean:
   nulleinspeisung_automatik_aktiv:
     name: "Nulleinspeisung: Automatik aktiv"
     icon: mdi:robot
+    initial: true
+
+  nulleinspeisung_solarprognose_nutzen:
+    name: "Nulleinspeisung: Solarprognose (forecast.solar) einbeziehen"
+    icon: mdi:weather-partly-cloudy
     initial: true
 
 input_number:
@@ -149,6 +163,37 @@ input_number:
     initial: 20
     mode: box
 
+  # --- Solarprognose (forecast.solar) ---
+  nulleinspeisung_batteriekapazitaet_kwh:
+    name: "Nulleinspeisung: Nutzbare Batteriekapazität (kWh)"
+    icon: mdi:battery-high
+    unit_of_measurement: "kWh"
+    min: 0.5
+    max: 30
+    step: 0.1
+    initial: 5.0
+    mode: box
+
+  nulleinspeisung_prognose_max_einfluss_prozentpunkte:
+    name: "Nulleinspeisung: Max. Einfluss der Solarprognose (Prozentpunkte)"
+    icon: mdi:weather-sunny-alert
+    unit_of_measurement: "%pt"
+    min: 0
+    max: 100
+    step: 5
+    initial: 40
+    mode: box
+
+  nulleinspeisung_prognose_einfluss_aktuell:
+    name: "Nulleinspeisung: Aktueller Prognose-Einfluss (Anzeige)"
+    icon: mdi:weather-sunny-alert
+    unit_of_measurement: "%pt"
+    min: 0
+    max: 100
+    step: 0.1
+    initial: 0
+    mode: box
+
   # --- Leistungsbegrenzung ---
   nulleinspeisung_ziel_max_leistung:
     name: "Nulleinspeisung: Maximale Einspeiseleistung (W)"
@@ -170,6 +215,12 @@ input_text:
   nulleinspeisung_status:
     name: "Nulleinspeisung: Status"
     icon: mdi:information-outline
+    max: 255
+
+  nulleinspeisung_solarprognose_entity_id:
+    name: "Nulleinspeisung: Entity-ID der Solarprognose (forecast.solar)"
+    icon: mdi:identifier
+    initial: "sensor.energy_production_today_remaining"
     max: 255
 
 # --- Energie-Dashboard-Sensoren ---
@@ -216,13 +267,32 @@ automation:
   # Dafür wird der aktuelle Tibber-Preis in ein Perzentil (0-100) unter allen
   # bekannten Preisen von heute+morgen eingeordnet (100 = teuerste bekannte
   # Stunde) und mit einer vom Akkustand abhängigen Schwelle verglichen:
-  #   Zielschwelle = 100 - SoC   (auf 5..95 begrenzt)
-  # Bei niedrigem SoC (z. B. 20 %) liegt die Schwelle hoch (80) -> es wird
-  # nur in den teuersten ~20 % der Stunden entladen, der Rest der Energie
-  # wird für wirklich teure Stunden aufgespart. Bei hohem SoC (z. B. 80 %)
-  # liegt die Schwelle niedrig (20) -> es wird in ~80 % der Stunden entladen,
-  # damit der Akku nicht sinnlos voll bleibt/überläuft (Vorgabe: nie 100 %
-  # SoC). Ein SoC-Überlaufschutz erzwingt ab einer konfigurierbaren Schwelle
+  #   Zielschwelle = 100 - effektiver_SoC   (auf 5..95 begrenzt)
+  # Bei niedrigem effektivem SoC (z. B. 20 %) liegt die Schwelle hoch (80) ->
+  # es wird nur in den teuersten ~20 % der Stunden entladen, der Rest der
+  # Energie wird für wirklich teure Stunden aufgespart. Bei hohem effektivem
+  # SoC (z. B. 80 %) liegt die Schwelle niedrig (20) -> es wird in ~80 % der
+  # Stunden entladen, damit der Akku nicht sinnlos voll bleibt/überläuft
+  # (Vorgabe: nie 100 % SoC).
+  #
+  # "Effektiver SoC" statt des reinen Akku-SoC, weil sonst zwei Situationen
+  # mit gleichem SoC gleich behandelt würden, obwohl sie wirtschaftlich
+  # unterschiedlich sind: An einem sonnigen Vormittag füllt sich der Akku
+  # ohnehin bald weiter nach, an einem bewölkten Tag ist der aktuelle SoC
+  # praktisch das gesamte Tagesbudget. Der effektive SoC schlägt daher die
+  # von forecast.solar für den REST DES HEUTIGEN TAGES prognostizierte
+  # Energie (in Prozentpunkten der Batteriekapazität, gedeckelt) auf den
+  # echten SoC auf - er kann die Bereitschaft zum Entladen also nur ERHÖHEN,
+  # nie verringern. Die morgige Prognose wird bewusst NICHT einbezogen
+  # (Wetterprognosen >24h sind zu unsicher, und die morgige Zielschwelle
+  # wird ohnehin morgen mit aktuellerer Prognose neu berechnet). Per Helper
+  # (input_boolean.nulleinspeisung_solarprognose_nutzen) abschaltbar, dann
+  # verhält sich das System wie zuvor rein SoC-basiert.
+  #
+  # SoC-Überlaufschutz und Tiefentladeschutz arbeiten bewusst mit dem ECHTEN
+  # SoC (nicht dem prognose-erhöhten effektiven Wert), damit eine zu
+  # optimistische Prognose diese Sicherheitsschwellen nicht verwässern kann:
+  # Ein SoC-Überlaufschutz erzwingt ab einer konfigurierbaren Schwelle
   # (Default 95 %) IMMER Nulleinspeisung, unabhängig vom Preis; ein
   # Tiefentladeschutz (Default 8 %) erzwingt umgekehrt IMMER "aus".
   #
@@ -314,7 +384,20 @@ automation:
           cheaper_count: "{{ price_entries | selectattr('price', 'lt', current_price) | list | count }}"
           preis_perzentil: "{{ (cheaper_count / (total_prices - 1) * 100) if total_prices > 1 else 50 }}"
           soc: "{{ states('sensor.akku_state_of_charge') | float(0) }}"
-          ziel_schwelle: "{{ [[100 - soc, 5] | max, 95] | min }}"
+          # --- Solarprognose (forecast.solar) als Zuschlag auf den SoC ---
+          prognose_entity: "{{ states('input_text.nulleinspeisung_solarprognose_entity_id') }}"
+          prognose_rest_kwh: >-
+            {{ states(prognose_entity) | float(0)
+               if (is_state('input_boolean.nulleinspeisung_solarprognose_nutzen', 'on') and
+                   prognose_entity not in ['unknown', 'unavailable', 'none', ''] and
+                   states(prognose_entity) not in ['unknown', 'unavailable', 'none', ''])
+               else 0 }}
+          batteriekapazitaet_kwh: "{{ states('input_number.nulleinspeisung_batteriekapazitaet_kwh') | float(5.0) }}"
+          prognose_max_einfluss: "{{ states('input_number.nulleinspeisung_prognose_max_einfluss_prozentpunkte') | float(40) }}"
+          prognose_einfluss_prozentpunkte: >-
+            {{ [((100 * prognose_rest_kwh / batteriekapazitaet_kwh) if batteriekapazitaet_kwh > 0 else 0), prognose_max_einfluss] | min }}
+          effektiver_soc: "{{ [soc + prognose_einfluss_prozentpunkte, 100] | min }}"
+          ziel_schwelle: "{{ [[100 - effektiver_soc, 5] | max, 95] | min }}"
           hysterese: "{{ states('input_number.nulleinspeisung_hysterese_prozentpunkte') | float(8) }}"
           ueberlauf_schutz_soc: "{{ states('input_number.nulleinspeisung_soc_ueberlauf_schutz') | float(95) }}"
           min_schutz_soc: "{{ states('input_number.nulleinspeisung_soc_min_schutz') | float(8) }}"
@@ -412,6 +495,11 @@ automation:
           entity_id: input_number.nulleinspeisung_preis_perzentil_aktuell
         data:
           value: "{{ preis_perzentil | round(1) }}"
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.nulleinspeisung_prognose_einfluss_aktuell
+        data:
+          value: "{{ prognose_einfluss_prozentpunkte | round(1) }}"
       - service: input_text.set_value
         target:
           entity_id: input_text.nulleinspeisung_status
@@ -421,6 +509,7 @@ automation:
                 ' | Preis-Perzentil ' ~ (preis_perzentil | round(0) | int) ~ '%' ~
                 ' | Zielschwelle ' ~ (ziel_schwelle | round(0) | int) ~ '%' ~
                 ' | SoC ' ~ (soc | round(0) | int) ~ '%' ~
+                ' | Prognose +' ~ (prognose_einfluss_prozentpunkte | round(0) | int) ~ '%pt (' ~ (prognose_rest_kwh | round(1)) ~ ' kWh)' ~
                 ' | Puffer ' ~ (puffer_aktuell | round(0) | int) ~ 'W' ~
                 ' | Umschaltungen heute ' ~ (toggles_heute_wert | round(0) | int) ~ '/' ~ (max_toggles | round(0) | int))[:255] }}
 

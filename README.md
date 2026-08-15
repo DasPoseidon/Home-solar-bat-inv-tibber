@@ -54,16 +54,19 @@ Laufzeitumgebung wie AppDaemon/pyscript/NodeRED nötig).
 │ sensor.akku_state_of_charge│───────▶│ Nulleinspeisung: Preis-/SoC-    │
 │ (JK-BMS über ESPHome)      │        │ Steuerung (alle 10 Min.)        │
 └───────────────────────────┘        │                                  │
-                                      │ 1) Preis-Perzentil (0-100%)      │
-                                      │    unter allen bekannten Std.    │
-                                      │    heute+morgen berechnen        │
-                                      │ 2) Zielschwelle = 100 - SoC      │
+┌───────────────────────────┐        │ 1) Preis-Perzentil (0-100%)      │
+│ forecast.solar-Sensor       │──────▶│    unter allen bekannten Std.    │
+│ (Prognose Rest-Tagesertrag) │        │    heute+morgen berechnen        │
+└───────────────────────────┘        │ 2) effektiver SoC = SoC +        │
+                                      │    Prognose-Zuschlag (gedeckelt) │
+                                      │ 3) Zielschwelle = 100 - eff. SoC │
                                       │    (5..95 begrenzt)              │
-                                      │ 3) Hysterese + Mindeststandzeit  │
+                                      │ 4) Hysterese + Mindeststandzeit  │
                                       │    + Tages-Umschaltlimit prüfen  │
                                       │    (EEPROM-Schonung)             │
-                                      │ 4) SoC-Überlauf-/Tiefentlade-    │
-                                      │    schutz übersteuert Preis      │
+                                      │ 5) SoC-Überlauf-/Tiefentlade-    │
+                                      │    schutz (echter SoC) übersteuert│
+                                      │    Preis                          │
                                       └───────────┬──────────────────────┘
                                                    │ switch.turn_on/off
                                                    ▼
@@ -100,7 +103,7 @@ bekannte Stunde), analog zur Preisabfrage im Twizy-Projekt per
 ruft die eigentliche API ohnehin nur ca. 1x/Tag intern ab).
 
 Die **Zielschwelle** ergibt sich aus dem aktuellen Akkustand:
-`Zielschwelle = 100 − SoC` (auf 5–95 begrenzt). Beispiele:
+`Zielschwelle = 100 − effektiver SoC` (auf 5–95 begrenzt). Beispiele:
 - SoC 20 % → Schwelle 80 % → nur in den teuersten ~20 % der Stunden wird
   entladen, der Rest wird für wirklich teure Stunden aufgespart.
 - SoC 80 % → Schwelle 20 % → in ~80 % der Stunden wird entladen, damit der
@@ -109,6 +112,41 @@ Die **Zielschwelle** ergibt sich aus dem aktuellen Akkustand:
 Damit regelt sich das System selbst ein: Ein hoher SoC macht das System
 "großzügiger" beim Entladen (Verschwendungsvermeidung), ein niedriger SoC
 "geiziger" (Ersparnis maximieren).
+
+**Solarprognose (`forecast.solar`) als Zuschlag auf den SoC:** Der reine
+Akku-SoC allein behandelt zwei Situationen mit gleichem Füllstand gleich,
+obwohl sie wirtschaftlich unterschiedlich sind – an einem sonnigen
+Vormittag füllt sich der Akku ohnehin bald weiter nach, an einem
+bewölkten Tag ist der aktuelle SoC praktisch das gesamte Tagesbudget.
+Deshalb wird der **effektive SoC** wie folgt berechnet:
+
+```
+Prognose-Zuschlag (%pt) = min(100 × Prognose-Rest-heute (kWh) / Batteriekapazität (kWh),
+                               max. Einfluss (Default 40 %pt))
+effektiver SoC = min(SoC + Prognose-Zuschlag, 100)
+```
+
+- Nur der **für den Rest des heutigen Tages** prognostizierte Ertrag fließt
+  ein (z. B. `sensor.energy_production_today_remaining` von forecast.solar,
+  Entity-ID über `input_text.nulleinspeisung_solarprognose_entity_id`
+  einstellbar – der tatsächliche Name hängt von der forecast.solar-
+  Instanzkonfiguration ab, unter Entwicklerwerkzeuge → Zustände prüfen).
+  Die Prognose für **morgen** wird bewusst NICHT einbezogen: Wetterprognosen
+  werden mit zunehmendem Zeithorizont unzuverlässiger, und morgen wird die
+  Zielschwelle ohnehin mit einer dann aktuelleren Prognose neu berechnet.
+- Der Zuschlag ist **gedeckelt** (Default max. 40 Prozentpunkte,
+  `input_number.nulleinspeisung_prognose_max_einfluss_prozentpunkte`), damit
+  eine untypisch hohe Prognose (z. B. Sensor-/API-Ausreißer) nicht sofort
+  zu maximaler Entladebereitschaft führt.
+- Der Zuschlag kann die Entladebereitschaft nur **erhöhen**, nie verringern
+  – bei fehlender/wenig Prognose (z. B. abends) verhält sich das System wie
+  zuvor rein SoC-basiert.
+- Über `input_boolean.nulleinspeisung_solarprognose_nutzen` komplett
+  abschaltbar.
+- **Wichtig:** Der Überlauf- und der Tiefentladeschutz (siehe unten)
+  arbeiten bewusst mit dem **echten** SoC, nicht mit dem prognose-erhöhten
+  effektiven Wert – eine zu optimistische Prognose darf diese
+  Sicherheitsschwellen nicht verwässern.
 
 **EEPROM-Schonung:** `manual_mode` wird nur umgeschaltet, wenn
 - seit der letzten Änderung die konfigurierte Mindeststandzeit vergangen ist
@@ -189,7 +227,10 @@ Energie-Dashboard ausgewählt werden können.
 
 ## Installation
 
-1. Voraussetzung: offizielle **Tibber**-Integration eingerichtet.
+1. Voraussetzung: offizielle **Tibber**-Integration eingerichtet. Optional,
+   aber empfohlen: **forecast.solar**-Integration eingerichtet (für den
+   Solarprognose-Zuschlag – ohne sie verhält sich das System weiterhin rein
+   SoC-basiert, siehe oben).
 2. `packages/nulleinspeisung.yaml` nach `<config>/packages/` kopieren.
    Sicherstellen, dass Packages aktiviert sind:
    ```yaml
@@ -212,6 +253,12 @@ Energie-Dashboard ausgewählt werden können.
 6. Unter **Einstellungen → Energie** im Bereich "Batteriesysteme"
    `sensor.akku_energie_geladen` (wird geladen) und
    `sensor.akku_energie_entladen` (wird entladen) eintragen.
+7. Falls forecast.solar genutzt wird: im Dashboard unter "Einstellungen –
+   Solarprognose" die tatsächliche Entity-ID des forecast.solar-
+   Prognosesensors eintragen (Default-Vermutung
+   `sensor.energy_production_today_remaining` – unter Entwicklerwerkzeuge →
+   Zustände nach "remaining"/"heute" suchen, falls abweichend) und die
+   nutzbare Batteriekapazität in kWh eintragen.
 
 ## Voreinstellungen anpassen
 
@@ -238,10 +285,15 @@ dashboards/
   echte Optimierung über den gesamten Tagesverlauf (kein Solver, keine
   PV-Ertragsprognose) – bewusst so gewählt, um mit Bordmitteln
   (Template-Automatisierung) auszukommen, wie im Schwesterprojekt.
-- Die Zielschwelle `100 − SoC` ist eine lineare Heuristik, keine
+- Die Zielschwelle `100 − effektiver SoC` ist eine lineare Heuristik, keine
   mathematisch optimale Lösung für "maximale Kostenersparnis bei nie 100 %
-  SoC" – in der Praxis aber ein robuster Kompromiss, der beide Ziele ohne
-  Prognosemodell in die richtige Richtung steuert.
+  SoC" – in der Praxis aber ein robuster Kompromiss, der beide Ziele in die
+  richtige Richtung steuert.
+- Der Solarprognose-Zuschlag nutzt nur die Rest-heute-Prognose, keine
+  stundenaufgelöste Verteilung (kein Abgleich "wann genau heute kommt wie
+  viel Ertrag") – dafür müsste man die stündliche `wh_hours`-Vorhersage von
+  forecast.solar auswerten, was die Templates deutlich komplexer machen
+  würde, ohne die Kernentscheidung (Ein/Aus jetzt) wesentlich zu verbessern.
 - Kein Kosten-/Ersparnis-Sensor fürs Energie-Dashboard: Home Assistant
   unterstützt für Batteriesysteme im Energie-Dashboard nur einen statischen
   Preis oder eine feste Kosten-Entity, keine stündlich wechselnden

@@ -23,6 +23,8 @@ views:
                 name: Puffer aktuell
               - entity: input_number.nulleinspeisung_preis_perzentil_aktuell
                 name: Preis-Perzentil aktuell
+              - entity: input_number.nulleinspeisung_prognose_einfluss_aktuell
+                name: Solarprognose-Einfluss aktuell
           - type: entities
             title: Leistung & Energie
             entities:
@@ -79,6 +81,17 @@ views:
                 name: SoC-Schwelle normal (aus)
               - entity: input_number.nulleinspeisung_puffer_min_standzeit_minuten
                 name: Mindeststandzeit Puffer (Min.)
+          - type: entities
+            title: Einstellungen – Solarprognose
+            entities:
+              - entity: input_boolean.nulleinspeisung_solarprognose_nutzen
+                name: Solarprognose einbeziehen
+              - entity: input_text.nulleinspeisung_solarprognose_entity_id
+                name: Prognose-Sensor (Entity-ID)
+              - entity: input_number.nulleinspeisung_batteriekapazitaet_kwh
+                name: Nutzbare Batteriekapazität (kWh)
+              - entity: input_number.nulleinspeisung_prognose_max_einfluss_prozentpunkte
+                name: Max. Einfluss (Prozentpunkte)
           - type: entities
             title: Einstellungen – Leistung (Debug)
             entities:
