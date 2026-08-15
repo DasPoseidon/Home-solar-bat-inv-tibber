@@ -9,11 +9,13 @@ dynamischem Tibber-Stromtarif.
 
 - Die Batterie kann **ausschließlich von den Solarpanelen** geladen werden –
   es gibt kein Laden aus dem Netz.
-- Der Wechselrichter darf **maximal 800 W** einspeisen und darf **nicht ins
-  Netz exportieren** ("Nulleinspeisung"): Der `soyosource_virtual_meter`
-  gleicht seine Ausgabe laufend am Hausnetz-Leistungssensor (Tibber Pulse,
-  `powermeter0` im ESPHome) aus, mit einem `buffer`-Wert (W) als
-  Sicherheitsmarge gegen versehentlichen Export.
+- Der Wechselrichter darf **nicht ins Netz exportieren**
+  ("Nulleinspeisung"): Der `soyosource_virtual_meter` gleicht seine Ausgabe
+  laufend am Hausnetz-Leistungssensor (Tibber Pulse, `powermeter0` im
+  ESPHome) aus, mit einem `buffer`-Wert (W) als Sicherheitsmarge gegen
+  versehentlichen Export. Die maximale Einspeiseleistung begrenzt der
+  Wechselrichter (`max_power_demand`) bereits selbst – dieses Repo verwaltet
+  diesen Wert nicht.
 - Die Inverter-Einstellungen (`manual_mode`, `buffer`) werden intern im
   Flash/EEPROM des ESP32 gespeichert (`restore_value: true`) – **zu
   häufiges Umschalten beschädigt das EEPROM**. Diese Werte dürfen also nur
@@ -81,10 +83,11 @@ Die tatsächlichen Entity-IDs (mit dem ESPHome-Geräteprefix `esp_twizygarage_`,
 siehe unten) stehen im Detail-Abschnitt und im Kopf von
 `packages/nulleinspeisung.yaml`.
 
-Eine zweite, kleine Automatisierung hält `number.esp_twizygarage_inverter_max_power_demand`
-dauerhaft auf dem konfigurierten Zielwert (Default 800 W) – schreibt aber
-dank `restore_value: true` im ESPHome nach dem ersten erfolgreichen Setzen
-praktisch nie wieder.
+Die maximale Einspeiseleistung (`number.esp_twizygarage_inverter_max_power_demand`)
+wird von diesem Repo bewusst **nicht** verwaltet – das begrenzt der
+Wechselrichter/`soyosource_virtual_meter` bereits selbst; der Wert ist
+einfach einmalig manuell zu setzen und bleibt dank `restore_value: true` im
+ESPHome dauerhaft erhalten.
 
 ## Funktionsweise im Detail
 
@@ -185,15 +188,6 @@ wird auf den normalen Puffer zurückgestellt. **Bewusst kein negativer
 Puffer** (der laut Komponenten-Doku aktiv Netzexport erzeugen würde) – das
 widerspräche der Nulleinspeisungs-Vorgabe.
 
-### Maximale Einspeiseleistung
-
-`number.esp_twizygarage_inverter_max_power_demand` wird dauerhaft auf den konfigurierbaren
-Zielwert (`input_number.nulleinspeisung_ziel_max_leistung`, Default 800 W)
-gehalten. Da der Wert im ESPHome `restore_value: true` gesetzt hat, wird
-nach dem ersten erfolgreichen Setzen so gut wie nie wieder geschrieben – die
-Automatisierung prüft nur bei HA-Start und bei Zustandsänderungen, ob der
-Wert (noch) stimmt.
-
 ### Bekannte physikalische Grenze
 
 Wenn der Hausverbrauch über längere Zeit sehr niedrig ist (z. B. niemand
@@ -260,6 +254,9 @@ Energie-Dashboard ausgewählt werden können.
    `sensor.energy_production_today_remaining` – unter Entwicklerwerkzeuge →
    Zustände nach "remaining"/"heute" suchen, falls abweichend) und die
    nutzbare Batteriekapazität in kWh eintragen.
+8. `number.esp_twizygarage_inverter_max_power_demand` (max. Einspeiseleistung)
+   einmalig manuell auf den gewünschten Wert setzen – wird von diesem Repo
+   nicht verwaltet, siehe "Architektur" oben.
 
 ## Voreinstellungen anpassen
 

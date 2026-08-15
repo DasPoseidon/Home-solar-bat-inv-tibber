@@ -93,12 +93,10 @@ views:
               - entity: input_number.nulleinspeisung_prognose_max_einfluss_prozentpunkte
                 name: Max. Einfluss (Prozentpunkte)
           - type: entities
-            title: Einstellungen – Leistung (Debug)
+            title: Einstellungen – Debug
             entities:
-              - entity: input_number.nulleinspeisung_ziel_max_leistung
-                name: Max. Einspeiseleistung (Ziel)
               - entity: number.esp_twizygarage_inverter_max_power_demand
-                name: Max. Einspeiseleistung (Gerät)
+                name: Max. Einspeiseleistung (vom Wechselrichter selbst begrenzt)
               - entity: input_number.nulleinspeisung_toggles_heute
                 name: Umschaltungen heute (Debug)
               - entity: input_datetime.nulleinspeisung_toggles_tag
