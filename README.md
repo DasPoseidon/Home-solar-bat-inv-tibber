@@ -46,48 +46,49 @@ einer Datei bündelt (Standard-HA-Bordmittel, keine zusätzliche
 Laufzeitumgebung wie AppDaemon/pyscript/NodeRED nötig).
 
 ```
-┌───────────────────────────┐
-│ Tibber-Integration         │──tibber.get_prices──┐
-│ (offiziell, Preise/Std.)   │                      ▼
-└───────────────────────────┘        ┌─────────────────────────────────┐
-┌───────────────────────────┐        │ automation:                     │
-│ sensor.akku_state_of_charge│───────▶│ Nulleinspeisung: Preis-/SoC-    │
-│ (JK-BMS über ESPHome)      │        │ Steuerung (alle 10 Min.)        │
-└───────────────────────────┘        │                                  │
-┌───────────────────────────┐        │ 1) Preis-Perzentil (0-100%)      │
-│ forecast.solar-Sensor       │──────▶│    unter allen bekannten Std.    │
-│ (Prognose Rest-Tagesertrag) │        │    heute+morgen berechnen        │
-└───────────────────────────┘        │ 2) effektiver SoC = SoC +        │
-                                      │    Prognose-Zuschlag (gedeckelt) │
-                                      │ 3) Zielschwelle = 100 - eff. SoC │
-                                      │    (5..95 begrenzt)              │
-                                      │ 4) Hysterese + Mindeststandzeit  │
-                                      │    + Tages-Umschaltlimit prüfen  │
-                                      │    (EEPROM-Schonung)             │
-                                      │ 5) SoC-Überlauf-/Tiefentlade-    │
-                                      │    schutz (echter SoC) übersteuert│
-                                      │    Preis                          │
-                                      └───────────┬──────────────────────┘
-                                                   │ switch.turn_on/off
-                                                   ▼
-                                      switch.inverter_manual_mode
-                                      (aus = automatische Nulleinspeisung
-                                       des soyosource_virtual_meter aktiv)
-                                                   │
-                                                   ▼
-                                      number.inverter_buffer
-                                      (normal/aggressiv, eigene Hysterese,
-                                       eigene Mindeststandzeit)
+┌─────────────────┐
+│ Tibber-Preise    │──tibber.get_prices──┐
+└─────────────────┘                      ▼
+┌─────────────────┐        ┌───────────────────────────────────┐
+│ Akku-SoC (JK-BMS)│───────▶│ automation:                        │
+└─────────────────┘        │ Nulleinspeisung: Preis-/SoC-        │
+┌─────────────────┐        │ Steuerung (alle 10 Min.)            │
+│ Solarprognose     │──────▶│                                      │
+│ (forecast.solar)  │        │ 1) Preis-Perzentil (0-100%) unter   │
+└─────────────────┘        │    allen bekannten Std. heute+morgen│
+                            │ 2) effektiver SoC = SoC + Prognose- │
+                            │    Zuschlag (gedeckelt)             │
+                            │ 3) Zielschwelle = 100 - eff. SoC    │
+                            │    (5..95 begrenzt)                 │
+                            │ 4) Hysterese + Mindeststandzeit +   │
+                            │    Tages-Umschaltlimit (EEPROM)     │
+                            │ 5) SoC-Überlauf-/Tiefentladeschutz  │
+                            │    (echter SoC) übersteuert Preis   │
+                            └───────────────┬──────────────────────┘
+                                             │ switch.turn_on/off
+                                             ▼
+                            manual_mode-Schalter des Wechselrichters
+                            (aus = automatische Nulleinspeisung
+                             des soyosource_virtual_meter aktiv)
+                                             │
+                                             ▼
+                            buffer-Number des Wechselrichters
+                            (normal/aggressiv, eigene Hysterese,
+                             eigene Mindeststandzeit)
 ```
 
-Eine zweite, kleine Automatisierung hält `number.inverter_max_power_demand`
+Die tatsächlichen Entity-IDs (mit dem ESPHome-Geräteprefix `esp_twizygarage_`,
+siehe unten) stehen im Detail-Abschnitt und im Kopf von
+`packages/nulleinspeisung.yaml`.
+
+Eine zweite, kleine Automatisierung hält `number.esp_twizygarage_inverter_max_power_demand`
 dauerhaft auf dem konfigurierten Zielwert (Default 800 W) – schreibt aber
 dank `restore_value: true` im ESPHome nach dem ersten erfolgreichen Setzen
 praktisch nie wieder.
 
 ## Funktionsweise im Detail
 
-### Ein/Aus der Nulleinspeisung (`switch.inverter_manual_mode`)
+### Ein/Aus der Nulleinspeisung (`switch.esp_twizygarage_inverter_manual_mode`)
 
 Der `soyosource_virtual_meter` hat zwei Betriebsarten:
 - **`manual_mode` aus** → automatische Nulleinspeisungs-Regelung aktiv: Der
@@ -168,7 +169,7 @@ Zwei Schutzmechanismen dürfen Standzeit **und** Tageslimit übersteuern
   hardwareseitigen JK-BMS-Schutzschwellen – die bleiben die eigentliche
   letzte Sicherheitsebene.)
 
-### Puffer (`number.inverter_buffer`)
+### Puffer (`number.esp_twizygarage_inverter_buffer`)
 
 Der Puffer ist primär eine Sicherheitsmarge gegen Netzexport, kein direkter
 Preis-Hebel – er wird deshalb bewusst NICHT mit dem Preis, sondern nur mit
@@ -186,7 +187,7 @@ widerspräche der Nulleinspeisungs-Vorgabe.
 
 ### Maximale Einspeiseleistung
 
-`number.inverter_max_power_demand` wird dauerhaft auf den konfigurierbaren
+`number.esp_twizygarage_inverter_max_power_demand` wird dauerhaft auf den konfigurierbaren
 Zielwert (`input_number.nulleinspeisung_ziel_max_leistung`, Default 800 W)
 gehalten. Da der Wert im ESPHome `restore_value: true` gesetzt hat, wird
 nach dem ersten erfolgreichen Setzen so gut wie nie wieder geschrieben – die
@@ -208,8 +209,8 @@ oder eine Dump-Load) läge außerhalb dieses ESPHome/dieser Automatisierung.
 Zwei neue Sensoren (Riemann-Summe/Integration der vorhandenen
 Leistungssensoren, in kWh) für den Home-Assistant-**Energie**-Bereich unter
 "Batteriesysteme":
-- `sensor.akku_energie_geladen` – integriert `sensor.akku_charging_power`
-- `sensor.akku_energie_entladen` – integriert `sensor.akku_discharging_power`
+- `sensor.akku_energie_geladen` – integriert `sensor.esp_twizygarage_akku_charging_power`
+- `sensor.akku_energie_entladen` – integriert `sensor.esp_twizygarage_akku_discharging_power`
 
 Der Netzbezug wird bereits über die vorhandene Tibber-Pulse-/Smartmeter-
 Integration (`sensor.ltibber_0100100700ff`) im Energie-Dashboard erfasst und

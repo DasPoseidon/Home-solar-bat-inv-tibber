@@ -14,16 +14,17 @@
 # Voraussetzung: `homeassistant: packages: !include_dir_named packages` in
 # der configuration.yaml.
 #
-# Angenommene Entity-IDs (aus den Friendly Names des ESPHome-Geräts
-# abgeleitet - unter Entwicklerwerkzeuge -> Zustände prüfen/anpassen, falls
-# abweichend):
-#   sensor.akku_state_of_charge
-#   sensor.akku_charging_power
-#   sensor.akku_discharging_power
-#   switch.inverter_manual_mode
-#   number.inverter_buffer
-#   number.inverter_manual_power_demand
-#   number.inverter_max_power_demand
+# Verwendete Entity-IDs (bestätigt: Home Assistant hängt bei diesem Gerät
+# den ESPHome-Gerätenamen "esp_twizygarage_" vor die aus den Friendly Names
+# abgeleiteten Namen - unter Entwicklerwerkzeuge -> Zustände trotzdem
+# gegenprüfen, falls sich der ESPHome-Gerätename mal ändert):
+#   sensor.esp_twizygarage_akku_state_of_charge
+#   sensor.esp_twizygarage_akku_charging_power
+#   sensor.esp_twizygarage_akku_discharging_power
+#   switch.esp_twizygarage_inverter_manual_mode
+#   number.esp_twizygarage_inverter_buffer
+#   number.esp_twizygarage_inverter_manual_power_demand
+#   number.esp_twizygarage_inverter_max_power_demand
 #
 # Die forecast.solar-Prognose-Entity ist NICHT hart verdrahtet, sondern über
 # den Helper input_text.nulleinspeisung_solarprognose_entity_id einstellbar
@@ -238,7 +239,7 @@ input_text:
 # bevor sie im Energie-Dashboard ausgewählt werden können.
 sensor:
   - platform: integration
-    source: sensor.akku_charging_power
+    source: sensor.esp_twizygarage_akku_charging_power
     name: "Akku Energie geladen"
     unique_id: akku_energie_geladen
     unit_prefix: k
@@ -246,7 +247,7 @@ sensor:
     method: left
 
   - platform: integration
-    source: sensor.akku_discharging_power
+    source: sensor.esp_twizygarage_akku_discharging_power
     name: "Akku Energie entladen"
     unique_id: akku_energie_entladen
     unit_prefix: k
@@ -383,7 +384,7 @@ automation:
           total_prices: "{{ price_entries | count }}"
           cheaper_count: "{{ price_entries | selectattr('price', 'lt', current_price) | list | count }}"
           preis_perzentil: "{{ (cheaper_count / (total_prices - 1) * 100) if total_prices > 1 else 50 }}"
-          soc: "{{ states('sensor.akku_state_of_charge') | float(0) }}"
+          soc: "{{ states('sensor.esp_twizygarage_akku_state_of_charge') | float(0) }}"
           # --- Solarprognose (forecast.solar) als Zuschlag auf den SoC ---
           prognose_entity: "{{ states('input_text.nulleinspeisung_solarprognose_entity_id') }}"
           prognose_rest_kwh: >-
@@ -405,11 +406,11 @@ automation:
           tiefentladeschutz_aktiv: "{{ soc <= min_schutz_soc }}"
           soll_aktiv: "{{ ueberlauf_aktiv or (not tiefentladeschutz_aktiv and preis_perzentil >= (ziel_schwelle + hysterese / 2)) }}"
           soll_inaktiv: "{{ tiefentladeschutz_aktiv or (not ueberlauf_aktiv and preis_perzentil <= (ziel_schwelle - hysterese / 2)) }}"
-          ist_aktiv: "{{ is_state('switch.inverter_manual_mode', 'off') }}"
+          ist_aktiv: "{{ is_state('switch.esp_twizygarage_inverter_manual_mode', 'off') }}"
           toggles_heute_wert: "{{ states('input_number.nulleinspeisung_toggles_heute') | float(0) }}"
           max_toggles: "{{ states('input_number.nulleinspeisung_max_toggles_pro_tag') | float(8) }}"
           darf_toggeln: "{{ toggles_heute_wert < max_toggles }}"
-          sekunden_seit_aenderung: "{{ (now() - states.switch.inverter_manual_mode.last_changed).total_seconds() if states.switch.inverter_manual_mode is not none else 999999 }}"
+          sekunden_seit_aenderung: "{{ (now() - states.switch.esp_twizygarage_inverter_manual_mode.last_changed).total_seconds() if states.switch.esp_twizygarage_inverter_manual_mode is not none else 999999 }}"
           standzeit_ok: "{{ sekunden_seit_aenderung >= ((states('input_number.nulleinspeisung_min_standzeit_minuten') | float(20)) * 60) }}"
 
       - choose:
@@ -424,7 +425,7 @@ automation:
             sequence:
               - service: switch.turn_off
                 target:
-                  entity_id: switch.inverter_manual_mode
+                  entity_id: switch.esp_twizygarage_inverter_manual_mode
               - service: input_number.set_value
                 target:
                   entity_id: input_number.nulleinspeisung_toggles_heute
@@ -442,7 +443,7 @@ automation:
             sequence:
               - service: switch.turn_on
                 target:
-                  entity_id: switch.inverter_manual_mode
+                  entity_id: switch.esp_twizygarage_inverter_manual_mode
               - service: input_number.set_value
                 target:
                   entity_id: input_number.nulleinspeisung_toggles_heute
@@ -450,23 +451,23 @@ automation:
                   value: "{{ toggles_heute_wert + 1 }}"
               - if:
                   - condition: template
-                    value_template: "{{ states('number.inverter_manual_power_demand') | float(0) != 0 }}"
+                    value_template: "{{ states('number.esp_twizygarage_inverter_manual_power_demand') | float(0) != 0 }}"
                 then:
                   - service: number.set_value
                     target:
-                      entity_id: number.inverter_manual_power_demand
+                      entity_id: number.esp_twizygarage_inverter_manual_power_demand
                     data:
                       value: 0
 
       # --- Puffer: normal <-> aggressiv (Überlaufschutz), eigene Hysterese ---
       - variables:
-          puffer_aktuell: "{{ states('number.inverter_buffer') | float(50) }}"
+          puffer_aktuell: "{{ states('number.esp_twizygarage_inverter_buffer') | float(50) }}"
           puffer_ziel_aggressiv_wert: "{{ states('input_number.nulleinspeisung_puffer_aggressiv') | float(0) }}"
           puffer_ziel_normal_wert: "{{ states('input_number.nulleinspeisung_puffer_normal') | float(50) }}"
           puffer_ist_aggressiv: "{{ (puffer_aktuell | round(0)) == (puffer_ziel_aggressiv_wert | round(0)) }}"
           puffer_soll_aggressiv: "{{ soc >= (states('input_number.nulleinspeisung_puffer_soc_ein') | float(95)) }}"
           puffer_soll_normal: "{{ soc <= (states('input_number.nulleinspeisung_puffer_soc_aus') | float(85)) }}"
-          puffer_sekunden_seit_aenderung: "{{ (now() - states.number.inverter_buffer.last_changed).total_seconds() if states.number.inverter_buffer is not none else 999999 }}"
+          puffer_sekunden_seit_aenderung: "{{ (now() - states.number.esp_twizygarage_inverter_buffer.last_changed).total_seconds() if states.number.esp_twizygarage_inverter_buffer is not none else 999999 }}"
           puffer_standzeit_ok: "{{ puffer_sekunden_seit_aenderung >= ((states('input_number.nulleinspeisung_puffer_min_standzeit_minuten') | float(20)) * 60) }}"
 
       - choose:
@@ -476,7 +477,7 @@ automation:
             sequence:
               - service: number.set_value
                 target:
-                  entity_id: number.inverter_buffer
+                  entity_id: number.esp_twizygarage_inverter_buffer
                 data:
                   value: "{{ puffer_ziel_aggressiv_wert }}"
           - conditions:
@@ -485,7 +486,7 @@ automation:
             sequence:
               - service: number.set_value
                 target:
-                  entity_id: number.inverter_buffer
+                  entity_id: number.esp_twizygarage_inverter_buffer
                 data:
                   value: "{{ puffer_ziel_normal_wert }}"
 
@@ -530,17 +531,17 @@ automation:
       - platform: homeassistant
         event: start
       - platform: state
-        entity_id: number.inverter_max_power_demand
+        entity_id: number.esp_twizygarage_inverter_max_power_demand
     action:
       - if:
           - condition: template
             value_template: >-
-              {{ states('number.inverter_max_power_demand') not in ['unknown', 'unavailable'] and
-                 (states('number.inverter_max_power_demand') | float(800)) !=
+              {{ states('number.esp_twizygarage_inverter_max_power_demand') not in ['unknown', 'unavailable'] and
+                 (states('number.esp_twizygarage_inverter_max_power_demand') | float(800)) !=
                  (states('input_number.nulleinspeisung_ziel_max_leistung') | float(800)) }}
         then:
           - service: number.set_value
             target:
-              entity_id: number.inverter_max_power_demand
+              entity_id: number.esp_twizygarage_inverter_max_power_demand
             data:
               value: "{{ states('input_number.nulleinspeisung_ziel_max_leistung') | float(800) }}"

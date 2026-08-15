@@ -15,11 +15,11 @@ views:
             entities:
               - entity: input_text.nulleinspeisung_status
                 name: Status
-              - entity: switch.inverter_manual_mode
+              - entity: switch.esp_twizygarage_inverter_manual_mode
                 name: Manual Mode (aus = Nulleinspeisung aktiv)
-              - entity: sensor.akku_state_of_charge
+              - entity: sensor.esp_twizygarage_akku_state_of_charge
                 name: Akku SoC
-              - entity: number.inverter_buffer
+              - entity: number.esp_twizygarage_inverter_buffer
                 name: Puffer aktuell
               - entity: input_number.nulleinspeisung_preis_perzentil_aktuell
                 name: Preis-Perzentil aktuell
@@ -28,28 +28,28 @@ views:
           - type: entities
             title: Leistung & Energie
             entities:
-              - entity: sensor.akku_power
+              - entity: sensor.esp_twizygarage_akku_power
                 name: Akku Leistung
-              - entity: sensor.akku_charging_power
+              - entity: sensor.esp_twizygarage_akku_charging_power
                 name: Akku Ladeleistung
-              - entity: sensor.akku_discharging_power
+              - entity: sensor.esp_twizygarage_akku_discharging_power
                 name: Akku Entladeleistung
               - entity: sensor.akku_energie_geladen
                 name: Akku Energie geladen (Dashboard)
               - entity: sensor.akku_energie_entladen
                 name: Akku Energie entladen (Dashboard)
-              - entity: sensor.inverter_smartmeter_instantaneous_power
+              - entity: sensor.esp_twizygarage_inverter_smartmeter_instantaneous_power
                 name: Netzbezug (Smartmeter)
           - type: entities
             title: Wechselrichter
             entities:
-              - entity: sensor.inverter_operation_status
+              - entity: sensor.esp_twizygarage_inverter_operation_status
                 name: Betriebsstatus
-              - entity: sensor.inverter_limiter_operation_mode
+              - entity: sensor.esp_twizygarage_inverter_limiter_operation_mode
                 name: Limiter-Modus
-              - entity: binary_sensor.inverter_fan_running
+              - entity: binary_sensor.esp_twizygarage_inverter_fan_running
                 name: Lüfter läuft
-              - entity: sensor.inverter_temperature
+              - entity: sensor.esp_twizygarage_inverter_temperature
                 name: Temperatur
       - type: grid
         cards:
@@ -97,7 +97,7 @@ views:
             entities:
               - entity: input_number.nulleinspeisung_ziel_max_leistung
                 name: Max. Einspeiseleistung (Ziel)
-              - entity: number.inverter_max_power_demand
+              - entity: number.esp_twizygarage_inverter_max_power_demand
                 name: Max. Einspeiseleistung (Gerät)
               - entity: input_number.nulleinspeisung_toggles_heute
                 name: Umschaltungen heute (Debug)
