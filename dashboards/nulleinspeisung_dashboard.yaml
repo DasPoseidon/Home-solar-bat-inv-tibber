@@ -1,0 +1,92 @@
+title: Nulleinspeisung
+views:
+  - title: Wechselrichter
+    path: nulleinspeisung
+    icon: mdi:solar-power-variant
+    cards: []
+    type: sections
+    max_columns: 4
+    show_icon_and_title: true
+    sections:
+      - type: grid
+        cards:
+          - type: entities
+            title: Status
+            entities:
+              - entity: input_text.nulleinspeisung_status
+                name: Status
+              - entity: switch.inverter_manual_mode
+                name: Manual Mode (aus = Nulleinspeisung aktiv)
+              - entity: sensor.akku_state_of_charge
+                name: Akku SoC
+              - entity: number.inverter_buffer
+                name: Puffer aktuell
+              - entity: input_number.nulleinspeisung_preis_perzentil_aktuell
+                name: Preis-Perzentil aktuell
+          - type: entities
+            title: Leistung & Energie
+            entities:
+              - entity: sensor.akku_power
+                name: Akku Leistung
+              - entity: sensor.akku_charging_power
+                name: Akku Ladeleistung
+              - entity: sensor.akku_discharging_power
+                name: Akku Entladeleistung
+              - entity: sensor.akku_energie_geladen
+                name: Akku Energie geladen (Dashboard)
+              - entity: sensor.akku_energie_entladen
+                name: Akku Energie entladen (Dashboard)
+              - entity: sensor.inverter_smartmeter_instantaneous_power
+                name: Netzbezug (Smartmeter)
+          - type: entities
+            title: Wechselrichter
+            entities:
+              - entity: sensor.inverter_operation_status
+                name: Betriebsstatus
+              - entity: sensor.inverter_limiter_operation_mode
+                name: Limiter-Modus
+              - entity: binary_sensor.inverter_fan_running
+                name: Lüfter läuft
+              - entity: sensor.inverter_temperature
+                name: Temperatur
+      - type: grid
+        cards:
+          - type: entities
+            title: Einstellungen – Automatik
+            entities:
+              - entity: input_boolean.nulleinspeisung_automatik_aktiv
+                name: Automatik aktiv
+              - entity: input_number.nulleinspeisung_max_toggles_pro_tag
+                name: Max. Umschaltungen/Tag
+              - entity: input_number.nulleinspeisung_min_standzeit_minuten
+                name: Mindeststandzeit (Min.)
+              - entity: input_number.nulleinspeisung_hysterese_prozentpunkte
+                name: Hysterese (Perzentil-Punkte)
+              - entity: input_number.nulleinspeisung_soc_ueberlauf_schutz
+                name: SoC-Schwelle Überlaufschutz
+              - entity: input_number.nulleinspeisung_soc_min_schutz
+                name: SoC-Schwelle Tiefentladeschutz
+          - type: entities
+            title: Einstellungen – Puffer
+            entities:
+              - entity: input_number.nulleinspeisung_puffer_normal
+                name: Puffer normal
+              - entity: input_number.nulleinspeisung_puffer_aggressiv
+                name: Puffer aggressiv
+              - entity: input_number.nulleinspeisung_puffer_soc_ein
+                name: SoC-Schwelle aggressiv (ein)
+              - entity: input_number.nulleinspeisung_puffer_soc_aus
+                name: SoC-Schwelle normal (aus)
+              - entity: input_number.nulleinspeisung_puffer_min_standzeit_minuten
+                name: Mindeststandzeit Puffer (Min.)
+          - type: entities
+            title: Einstellungen – Leistung (Debug)
+            entities:
+              - entity: input_number.nulleinspeisung_ziel_max_leistung
+                name: Max. Einspeiseleistung (Ziel)
+              - entity: number.inverter_max_power_demand
+                name: Max. Einspeiseleistung (Gerät)
+              - entity: input_number.nulleinspeisung_toggles_heute
+                name: Umschaltungen heute (Debug)
+              - entity: input_datetime.nulleinspeisung_toggles_tag
+                name: Zähler-Datum (Debug)

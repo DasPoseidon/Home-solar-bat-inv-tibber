@@ -1,0 +1,457 @@
+# Nulleinspeisung-Steuerung für den Soyosource-GTN-Wechselrichter
+# (ESPHome: esphome/esp-twizygarage.yaml)
+#
+# Dieses Paket bündelt:
+#   - alle Helper-Entities (Zustand, Schwellwerte, Zähler)
+#   - Energie-Sensoren fürs Home-Assistant-Energie-Dashboard
+#   - die beiden Automatisierungen für Ein/Aus, Puffer und Leistungsbegrenzung
+# in einer Datei, wie es für ein Home-Assistant-"Package" üblich ist. Anders
+# als beim Lade-Scheduler-Projekt (twizy-ladeberechnung) gibt es hier keine
+# Blueprints, weil diese Automatisierungen nur für genau EINEN Wechselrichter
+# gedacht sind (keine Mehrfachinstanziierung nötig) und feste Entity-IDs
+# verwenden dürfen.
+#
+# Voraussetzung: `homeassistant: packages: !include_dir_named packages` in
+# der configuration.yaml.
+#
+# Angenommene Entity-IDs (aus den Friendly Names des ESPHome-Geräts
+# abgeleitet - unter Entwicklerwerkzeuge -> Zustände prüfen/anpassen, falls
+# abweichend):
+#   sensor.akku_state_of_charge
+#   sensor.akku_charging_power
+#   sensor.akku_discharging_power
+#   switch.inverter_manual_mode
+#   number.inverter_buffer
+#   number.inverter_manual_power_demand
+#   number.inverter_max_power_demand
+
+input_boolean:
+  nulleinspeisung_automatik_aktiv:
+    name: "Nulleinspeisung: Automatik aktiv"
+    icon: mdi:robot
+    initial: true
+
+input_number:
+  # --- Ein/Aus-Steuerung (manual_mode) ---
+  nulleinspeisung_max_toggles_pro_tag:
+    name: "Nulleinspeisung: Max. Umschaltungen pro Tag"
+    icon: mdi:counter
+    min: 1
+    max: 30
+    step: 1
+    initial: 8
+    mode: box
+
+  nulleinspeisung_toggles_heute:
+    name: "Nulleinspeisung: Umschaltungen heute (intern)"
+    icon: mdi:counter
+    min: 0
+    max: 999
+    step: 1
+    initial: 0
+    mode: box
+
+  nulleinspeisung_min_standzeit_minuten:
+    name: "Nulleinspeisung: Mindeststandzeit zwischen Umschaltungen (Minuten)"
+    icon: mdi:timer-sand
+    min: 5
+    max: 180
+    step: 5
+    initial: 20
+    mode: box
+
+  nulleinspeisung_hysterese_prozentpunkte:
+    name: "Nulleinspeisung: Hysterese (Perzentil-Punkte)"
+    icon: mdi:swap-vertical-bold
+    min: 0
+    max: 40
+    step: 1
+    initial: 8
+    mode: box
+
+  nulleinspeisung_soc_ueberlauf_schutz:
+    name: "Nulleinspeisung: SoC-Schwelle Überlaufschutz (immer entladen ab)"
+    icon: mdi:battery-alert
+    unit_of_measurement: "%"
+    min: 70
+    max: 100
+    step: 1
+    initial: 95
+    mode: box
+
+  nulleinspeisung_soc_min_schutz:
+    name: "Nulleinspeisung: SoC-Schwelle Tiefentladeschutz (immer aus ab)"
+    icon: mdi:battery-low
+    unit_of_measurement: "%"
+    min: 0
+    max: 50
+    step: 1
+    initial: 8
+    mode: box
+
+  nulleinspeisung_preis_perzentil_aktuell:
+    name: "Nulleinspeisung: Aktuelles Preis-Perzentil (Anzeige)"
+    icon: mdi:chart-bell-curve
+    unit_of_measurement: "%"
+    min: 0
+    max: 100
+    step: 0.1
+    initial: 0
+    mode: box
+
+  # --- Puffer (Überlaufschutz) ---
+  nulleinspeisung_puffer_normal:
+    name: "Nulleinspeisung: Puffer normal (W)"
+    icon: mdi:tune
+    unit_of_measurement: "W"
+    min: 0
+    max: 200
+    step: 5
+    initial: 50
+    mode: box
+
+  nulleinspeisung_puffer_aggressiv:
+    name: "Nulleinspeisung: Puffer aggressiv/Überlaufschutz (W)"
+    icon: mdi:tune
+    unit_of_measurement: "W"
+    min: 0
+    max: 200
+    step: 5
+    initial: 0
+    mode: box
+
+  nulleinspeisung_puffer_soc_ein:
+    name: "Nulleinspeisung: SoC-Schwelle für aggressiven Puffer (ein ab)"
+    icon: mdi:battery-alert
+    unit_of_measurement: "%"
+    min: 70
+    max: 100
+    step: 1
+    initial: 95
+    mode: box
+
+  nulleinspeisung_puffer_soc_aus:
+    name: "Nulleinspeisung: SoC-Schwelle für normalen Puffer (zurück ab)"
+    icon: mdi:battery-50
+    unit_of_measurement: "%"
+    min: 50
+    max: 99
+    step: 1
+    initial: 85
+    mode: box
+
+  nulleinspeisung_puffer_min_standzeit_minuten:
+    name: "Nulleinspeisung: Mindeststandzeit zwischen Pufferänderungen (Minuten)"
+    icon: mdi:timer-sand
+    min: 5
+    max: 180
+    step: 5
+    initial: 20
+    mode: box
+
+  # --- Leistungsbegrenzung ---
+  nulleinspeisung_ziel_max_leistung:
+    name: "Nulleinspeisung: Maximale Einspeiseleistung (W)"
+    icon: mdi:flash
+    unit_of_measurement: "W"
+    min: 100
+    max: 900
+    step: 10
+    initial: 800
+    mode: box
+
+input_datetime:
+  nulleinspeisung_toggles_tag:
+    name: "Nulleinspeisung: Datum des Umschaltungszählers (intern)"
+    has_date: true
+    has_time: false
+
+input_text:
+  nulleinspeisung_status:
+    name: "Nulleinspeisung: Status"
+    icon: mdi:information-outline
+    max: 255
+
+# --- Energie-Dashboard-Sensoren ---
+# Die Batterie kann laut Vorgabe ausschließlich von den Solarpanelen geladen
+# werden - die geladene Energie entspricht damit direkt der ins Batterie-
+# System geflossenen Solarenergie. "Entladen" ist die Energie, die der
+# Wechselrichter aus der Batterie zieht, um den Hausverbrauch zu decken.
+# Beides wird per Riemann-Summe (Integration der Leistungssensoren) in kWh
+# umgerechnet - das sind die zwei Sensoren, die im Energie-Dashboard unter
+# "Batteriesysteme" als "Wird geladen"/"Wird entladen" eingetragen werden.
+#
+# Hinweis: Falls Home Assistant die Gerätklasse nicht automatisch als
+# "Energie" erkennt, im Entity-Einstellungsdialog der beiden Sensoren
+# (Zahnrad-Symbol -> Gerätklasse) einmalig manuell auf "Energie" setzen,
+# bevor sie im Energie-Dashboard ausgewählt werden können.
+sensor:
+  - platform: integration
+    source: sensor.akku_charging_power
+    name: "Akku Energie geladen"
+    unique_id: akku_energie_geladen
+    unit_prefix: k
+    unit_time: h
+    method: left
+
+  - platform: integration
+    source: sensor.akku_discharging_power
+    name: "Akku Energie entladen"
+    unique_id: akku_energie_entladen
+    unit_prefix: k
+    unit_time: h
+    method: left
+
+automation:
+  # ==========================================================================
+  # 1) Preis-/SoC-Steuerung: Nulleinspeisung ein/aus (manual_mode) + Puffer
+  # ==========================================================================
+  #
+  # Grundidee: Die Batterie kann NUR von der Sonne geladen werden ("Einkaufen
+  # bei billigem Strom" wie beim Twizy-Laden funktioniert hier also nicht -
+  # es gibt kein Netzladen). Wirtschaftlich sinnvoll ist daher nicht "wann
+  # laden", sondern "wann die ohnehin vorhandene, tagsüber nachwachsende
+  # Solarenergie einsetzen, um möglichst teure Netzstunden zu verdrängen".
+  #
+  # Dafür wird der aktuelle Tibber-Preis in ein Perzentil (0-100) unter allen
+  # bekannten Preisen von heute+morgen eingeordnet (100 = teuerste bekannte
+  # Stunde) und mit einer vom Akkustand abhängigen Schwelle verglichen:
+  #   Zielschwelle = 100 - SoC   (auf 5..95 begrenzt)
+  # Bei niedrigem SoC (z. B. 20 %) liegt die Schwelle hoch (80) -> es wird
+  # nur in den teuersten ~20 % der Stunden entladen, der Rest der Energie
+  # wird für wirklich teure Stunden aufgespart. Bei hohem SoC (z. B. 80 %)
+  # liegt die Schwelle niedrig (20) -> es wird in ~80 % der Stunden entladen,
+  # damit der Akku nicht sinnlos voll bleibt/überläuft (Vorgabe: nie 100 %
+  # SoC). Ein SoC-Überlaufschutz erzwingt ab einer konfigurierbaren Schwelle
+  # (Default 95 %) IMMER Nulleinspeisung, unabhängig vom Preis; ein
+  # Tiefentladeschutz (Default 8 %) erzwingt umgekehrt IMMER "aus".
+  #
+  # EEPROM-Schonung: manual_mode und der Puffer werden nur umgeschaltet, wenn
+  #   a) sich seit der letzten Änderung mindestens die konfigurierte
+  #      Mindeststandzeit ergeben hat (Default 20 min),
+  #   b) das Tages-Umschaltlimit noch nicht erreicht ist (Default 8x/Tag),
+  #   c) UND (Hysterese) die Zielrichtung deutlich genug ist - im Bereich
+  #      "Zielschwelle ± Hysterese/2" bleibt der aktuelle Zustand einfach
+  #      bestehen, statt bei jeder kleinen Preisschwankung zu kippen.
+  # Die beiden Schutzmechanismen (Überlauf/Tiefentladung) dürfen das
+  # Tageslimit und die Standzeit überschreiben, damit sie im Notfall immer
+  # greifen - werden aber trotzdem gezählt, damit man im Dashboard sieht,
+  # wie oft das passiert ist.
+  - alias: "Nulleinspeisung: Preis-/SoC-Steuerung"
+    id: nulleinspeisung_preis_soc_steuerung
+    mode: single
+    max_exceeded: silent
+    trigger:
+      - platform: time_pattern
+        minutes: "/10"
+        id: periodic
+      - platform: state
+        entity_id: input_boolean.nulleinspeisung_automatik_aktiv
+        to: "on"
+        id: periodic
+    action:
+      - if:
+          - condition: state
+            entity_id: input_boolean.nulleinspeisung_automatik_aktiv
+            state: "off"
+        then:
+          - stop: "Automatik deaktiviert"
+
+      # Tages-Umschaltzähler bei Datumswechsel zurücksetzen.
+      - variables:
+          heute_datum: "{{ now().strftime('%Y-%m-%d') }}"
+      - if:
+          - condition: template
+            value_template: "{{ states('input_datetime.nulleinspeisung_toggles_tag') != heute_datum }}"
+        then:
+          - service: input_number.set_value
+            target:
+              entity_id: input_number.nulleinspeisung_toggles_heute
+            data:
+              value: 0
+          - service: input_datetime.set_datetime
+            target:
+              entity_id: input_datetime.nulleinspeisung_toggles_tag
+            data:
+              date: "{{ heute_datum }}"
+
+      # Tibber-Stundenpreise heute+morgen abrufen (wie im Twizy-Projekt: die
+      # Tibber-Integration ruft die eigentliche API dabei nur auf, wenn die
+      # angefragten Daten nicht schon lokal vorliegen, ca. 1x/Tag -
+      # unabhängig davon, wie oft dieser Prüfzyklus läuft).
+      - service: tibber.get_prices
+        continue_on_error: true
+        data:
+          start: "{{ now().replace(hour=0, minute=0, second=0, microsecond=0).isoformat() }}"
+          end: "{{ (now().replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=2)).isoformat() }}"
+        response_variable: tibber_price_response
+
+      - variables:
+          price_entries: >
+            {% set ns = namespace(items=[]) %}
+            {% set homes = (tibber_price_response.prices.values() | list) if (tibber_price_response is defined and tibber_price_response and tibber_price_response.prices is defined) else [] %}
+            {% set raw_prices = homes[0] if homes else [] %}
+            {% for e in raw_prices %}
+              {% if e.price is defined and e.start_time is defined and e.price is not none %}
+                {% set eh = (as_datetime(e.start_time).timestamp() | int) // 3600 %}
+                {% set ns.items = ns.items + [{'epoch_hour': eh, 'price': e.price}] %}
+              {% endif %}
+            {% endfor %}
+            {{ ns.items }}
+          current_epoch_hour: "{{ (now().timestamp() | int) // 3600 }}"
+          current_price: >-
+            {% set matches = price_entries | selectattr('epoch_hour', 'eq', current_epoch_hour) | list %}
+            {{ matches[0].price if matches else none }}
+
+      - if:
+          - condition: template
+            value_template: "{{ current_price is none }}"
+        then:
+          - stop: "Kein aktueller Tibber-Preis verfügbar - Zyklus übersprungen"
+
+      - variables:
+          total_prices: "{{ price_entries | count }}"
+          cheaper_count: "{{ price_entries | selectattr('price', 'lt', current_price) | list | count }}"
+          preis_perzentil: "{{ (cheaper_count / (total_prices - 1) * 100) if total_prices > 1 else 50 }}"
+          soc: "{{ states('sensor.akku_state_of_charge') | float(0) }}"
+          ziel_schwelle: "{{ [[100 - soc, 5] | max, 95] | min }}"
+          hysterese: "{{ states('input_number.nulleinspeisung_hysterese_prozentpunkte') | float(8) }}"
+          ueberlauf_schutz_soc: "{{ states('input_number.nulleinspeisung_soc_ueberlauf_schutz') | float(95) }}"
+          min_schutz_soc: "{{ states('input_number.nulleinspeisung_soc_min_schutz') | float(8) }}"
+          ueberlauf_aktiv: "{{ soc >= ueberlauf_schutz_soc }}"
+          tiefentladeschutz_aktiv: "{{ soc <= min_schutz_soc }}"
+          soll_aktiv: "{{ ueberlauf_aktiv or (not tiefentladeschutz_aktiv and preis_perzentil >= (ziel_schwelle + hysterese / 2)) }}"
+          soll_inaktiv: "{{ tiefentladeschutz_aktiv or (not ueberlauf_aktiv and preis_perzentil <= (ziel_schwelle - hysterese / 2)) }}"
+          ist_aktiv: "{{ is_state('switch.inverter_manual_mode', 'off') }}"
+          toggles_heute_wert: "{{ states('input_number.nulleinspeisung_toggles_heute') | float(0) }}"
+          max_toggles: "{{ states('input_number.nulleinspeisung_max_toggles_pro_tag') | float(8) }}"
+          darf_toggeln: "{{ toggles_heute_wert < max_toggles }}"
+          sekunden_seit_aenderung: "{{ (now() - states.switch.inverter_manual_mode.last_changed).total_seconds() if states.switch.inverter_manual_mode is not none else 999999 }}"
+          standzeit_ok: "{{ sekunden_seit_aenderung >= ((states('input_number.nulleinspeisung_min_standzeit_minuten') | float(20)) * 60) }}"
+
+      - choose:
+          # Nulleinspeisung einschalten = manual_mode AUS (automatische
+          # Nulleinspeisungs-Regelung des soyosource_virtual_meter aktiv).
+          - conditions:
+              - condition: template
+                value_template: >-
+                  {{ soll_aktiv and not ist_aktiv and
+                     (standzeit_ok or ueberlauf_aktiv) and
+                     (darf_toggeln or ueberlauf_aktiv) }}
+            sequence:
+              - service: switch.turn_off
+                target:
+                  entity_id: switch.inverter_manual_mode
+              - service: input_number.set_value
+                target:
+                  entity_id: input_number.nulleinspeisung_toggles_heute
+                data:
+                  value: "{{ toggles_heute_wert + 1 }}"
+          # Nulleinspeisung ausschalten = manual_mode EIN, Ausgabe zusätzlich
+          # explizit auf 0 setzen (nur falls sie das nicht ohnehin schon
+          # ist, um unnötige EEPROM-Schreibzugriffe zu vermeiden).
+          - conditions:
+              - condition: template
+                value_template: >-
+                  {{ soll_inaktiv and ist_aktiv and
+                     (standzeit_ok or tiefentladeschutz_aktiv) and
+                     (darf_toggeln or tiefentladeschutz_aktiv) }}
+            sequence:
+              - service: switch.turn_on
+                target:
+                  entity_id: switch.inverter_manual_mode
+              - service: input_number.set_value
+                target:
+                  entity_id: input_number.nulleinspeisung_toggles_heute
+                data:
+                  value: "{{ toggles_heute_wert + 1 }}"
+              - if:
+                  - condition: template
+                    value_template: "{{ states('number.inverter_manual_power_demand') | float(0) != 0 }}"
+                then:
+                  - service: number.set_value
+                    target:
+                      entity_id: number.inverter_manual_power_demand
+                    data:
+                      value: 0
+
+      # --- Puffer: normal <-> aggressiv (Überlaufschutz), eigene Hysterese ---
+      - variables:
+          puffer_aktuell: "{{ states('number.inverter_buffer') | float(50) }}"
+          puffer_ziel_aggressiv_wert: "{{ states('input_number.nulleinspeisung_puffer_aggressiv') | float(0) }}"
+          puffer_ziel_normal_wert: "{{ states('input_number.nulleinspeisung_puffer_normal') | float(50) }}"
+          puffer_ist_aggressiv: "{{ (puffer_aktuell | round(0)) == (puffer_ziel_aggressiv_wert | round(0)) }}"
+          puffer_soll_aggressiv: "{{ soc >= (states('input_number.nulleinspeisung_puffer_soc_ein') | float(95)) }}"
+          puffer_soll_normal: "{{ soc <= (states('input_number.nulleinspeisung_puffer_soc_aus') | float(85)) }}"
+          puffer_sekunden_seit_aenderung: "{{ (now() - states.number.inverter_buffer.last_changed).total_seconds() if states.number.inverter_buffer is not none else 999999 }}"
+          puffer_standzeit_ok: "{{ puffer_sekunden_seit_aenderung >= ((states('input_number.nulleinspeisung_puffer_min_standzeit_minuten') | float(20)) * 60) }}"
+
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ puffer_soll_aggressiv and not puffer_ist_aggressiv and puffer_standzeit_ok }}"
+            sequence:
+              - service: number.set_value
+                target:
+                  entity_id: number.inverter_buffer
+                data:
+                  value: "{{ puffer_ziel_aggressiv_wert }}"
+          - conditions:
+              - condition: template
+                value_template: "{{ puffer_soll_normal and puffer_ist_aggressiv and puffer_standzeit_ok }}"
+            sequence:
+              - service: number.set_value
+                target:
+                  entity_id: number.inverter_buffer
+                data:
+                  value: "{{ puffer_ziel_normal_wert }}"
+
+      # --- Anzeige-Helper für Dashboard/Debugging aktualisieren ---
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.nulleinspeisung_preis_perzentil_aktuell
+        data:
+          value: "{{ preis_perzentil | round(1) }}"
+      - service: input_text.set_value
+        target:
+          entity_id: input_text.nulleinspeisung_status
+        data:
+          value: >-
+            {{ (('Aktiv' if ist_aktiv else 'Inaktiv') ~
+                ' | Preis-Perzentil ' ~ (preis_perzentil | round(0) | int) ~ '%' ~
+                ' | Zielschwelle ' ~ (ziel_schwelle | round(0) | int) ~ '%' ~
+                ' | SoC ' ~ (soc | round(0) | int) ~ '%' ~
+                ' | Puffer ' ~ (puffer_aktuell | round(0) | int) ~ 'W' ~
+                ' | Umschaltungen heute ' ~ (toggles_heute_wert | round(0) | int) ~ '/' ~ (max_toggles | round(0) | int))[:255] }}
+
+  # ==========================================================================
+  # 2) Maximale Einspeiseleistung dauerhaft auf den Zielwert begrenzen
+  # ==========================================================================
+  # Vorgabe: maximal 800 W dürfen eingespeist werden. `max_power_demand` hat
+  # `restore_value: true` im ESPHome und wird daher nach dem ersten
+  # erfolgreichen Setzen dauerhaft im Flash gehalten - diese Automatisierung
+  # muss danach praktisch nie wieder schreiben. Sie prüft trotzdem bei jedem
+  # HA-Start und bei jeder Zustandsänderung des Wertes (z. B. nach
+  # Werksreset des ESP oder versehentlicher manueller Änderung), ob der Wert
+  # noch stimmt, und schreibt NUR bei tatsächlicher Abweichung.
+  - alias: "Nulleinspeisung: Maximale Einspeiseleistung begrenzen"
+    id: nulleinspeisung_max_leistung_begrenzen
+    mode: single
+    trigger:
+      - platform: homeassistant
+        event: start
+      - platform: state
+        entity_id: number.inverter_max_power_demand
+    action:
+      - if:
+          - condition: template
+            value_template: >-
+              {{ states('number.inverter_max_power_demand') not in ['unknown', 'unavailable'] and
+                 (states('number.inverter_max_power_demand') | float(800)) !=
+                 (states('input_number.nulleinspeisung_ziel_max_leistung') | float(800)) }}
+        then:
+          - service: number.set_value
+            target:
+              entity_id: number.inverter_max_power_demand
+            data:
+              value: "{{ states('input_number.nulleinspeisung_ziel_max_leistung') | float(800) }}"
