@@ -257,9 +257,16 @@ Energie-Dashboard ausgewählt werden können.
    reicht, da alle Entity-IDs dort direkt und ausschließlich verwendet
    werden – keine indirekten Helper-Referenzen wie im Twizy-Projekt, da
    keine Mehrfachinstanziierung nötig ist).
-4. Home Assistant neu laden (YAML-Konfiguration neu laden reicht, Neustart
-   nicht zwingend nötig – bis auf `input_*`-Helper, die ggf. einen Neustart
-   brauchen, falls sie nicht per "YAML neu laden" erfasst werden).
+4. Home Assistant **komplett neu starten** (Einstellungen → System →
+   Neu starten). Ein reines "YAML-Konfiguration neu laden" reicht NICHT
+   zuverlässig: Domains mit eigenem Reload-Service (`automation`,
+   `input_number`, `input_boolean`, `input_text`, `input_datetime`) werden
+   damit zwar meist erfasst, die beiden neuen `sensor: platform: integration`-
+   Energie-Sensoren (Riemann-Summe, siehe unten) sind aber plattform-basierte
+   YAML-Sensoren, die i. d. R. nur bei einem echten Neustart neu eingerichtet
+   werden. Fehlen sie danach immer noch unter Entwicklerwerkzeuge →
+   Zustände, unter Einstellungen → System → Protokolle nach Fehlern zur
+   Package-Datei suchen.
 5. Optional: `dashboards/nulleinspeisung_dashboard.yaml` als eigenes
    Dashboard einbinden (Einstellungen → Dashboards → "+ Dashboard
    hinzufügen" → "Neues Dashboard von Grund auf erstellen" → ⋮ → Dashboard
