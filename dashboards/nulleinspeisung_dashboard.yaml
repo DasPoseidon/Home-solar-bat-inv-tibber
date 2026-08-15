@@ -17,8 +17,12 @@ views:
                 name: Status
               - entity: switch.esp_twizygarage_inverter_manual_mode
                 name: Manual Mode (aus = Nulleinspeisung aktiv)
+              - entity: input_number.fakesoc
+                name: Fake-SoC (für Steuerung verwendet)
               - entity: sensor.esp_twizygarage_akku_state_of_charge
-                name: Akku SoC
+                name: Akku SoC (BMS, nur zum Vergleich)
+              - entity: sensor.esp_twizygarage_akku_total_voltage
+                name: Akku Spannung
               - entity: number.esp_twizygarage_inverter_buffer
                 name: Puffer aktuell
               - entity: input_number.nulleinspeisung_preis_perzentil_aktuell

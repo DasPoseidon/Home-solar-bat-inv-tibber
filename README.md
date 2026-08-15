@@ -52,12 +52,14 @@ Laufzeitumgebung wie AppDaemon/pyscript/NodeRED nötig).
 │ Tibber-Preise    │──tibber.get_prices──┐
 └─────────────────┘                      ▼
 ┌─────────────────┐        ┌───────────────────────────────────┐
-│ Akku-SoC (JK-BMS)│───────▶│ automation:                        │
-└─────────────────┘        │ Nulleinspeisung: Preis-/SoC-        │
-┌─────────────────┐        │ Steuerung (alle 10 Min.)            │
-│ Solarprognose     │──────▶│                                      │
-│ (forecast.solar)  │        │ 1) Preis-Perzentil (0-100%) unter   │
-└─────────────────┘        │    allen bekannten Std. heute+morgen│
+│ Akku-Spannung     │──────▶│ automation:                        │
+│ (JK-BMS)          │        │ Nulleinspeisung: Preis-/SoC-        │
+└─────────────────┘        │ Steuerung (alle 10 Min.)            │
+┌─────────────────┐        │                                      │
+│ Solarprognose     │──────▶│ 0) SoC = Fake-SoC aus Spannung       │
+│ (forecast.solar)  │        │    (BMS-SoC wird nicht genutzt)     │
+└─────────────────┘        │ 1) Preis-Perzentil (0-100%) unter   │
+                            │    allen bekannten Std. heute+morgen│
                             │ 2) effektiver SoC = SoC + Prognose- │
                             │    Zuschlag (gedeckelt)             │
                             │ 3) Zielschwelle = 100 - eff. SoC    │
@@ -90,6 +92,23 @@ einfach einmalig manuell zu setzen und bleibt dank `restore_value: true` im
 ESPHome dauerhaft erhalten.
 
 ## Funktionsweise im Detail
+
+### SoC-Berechnung: Fake-SoC statt BMS-SoC (`input_number.fakesoc`)
+
+Als "SoC" verwendet die gesamte Steuerung **nicht** den vom JK-BMS gemeldeten
+Wert (`sensor.esp_twizygarage_akku_state_of_charge`), sondern einen aus der
+Akkuspannung berechneten **Fake-SoC** (`input_number.fakesoc`), den die
+Automatisierung bei jedem Durchlauf (alle 10 min) neu berechnet und
+schreibt:
+
+```
+fakesoc = floor((Spannung_Akku − 46) × 8,6956522)   # 46 V = 0 %, 57,5 V = 100 %
+```
+
+linear zwischen 46 V (0 %) und 57,5 V (100 %), auf 0–100 geklemmt. Als
+Spannungsquelle dient `sensor.esp_twizygarage_akku_total_voltage` (JK-BMS).
+Der BMS-SoC bleibt als eigener Sensor weiterhin verfügbar (z. B. zum
+Vergleich im Dashboard), fließt aber in keine Entscheidung mehr ein.
 
 ### Ein/Aus der Nulleinspeisung (`switch.esp_twizygarage_inverter_manual_mode`)
 
@@ -279,6 +298,13 @@ dashboards/
 
 ## Bekannte Vereinfachungen
 
+- Der Fake-SoC ist eine lineare Spannungs-Näherung (46–57,5 V), keine echte
+  Coulomb-Zählung – bei LiFePO4-Zellen ist die Spannungskurve im mittleren
+  SoC-Bereich sehr flach, der Fake-SoC dort also ungenauer als am oberen/
+  unteren Ende. Die genauen Eckwerte sind auf die konkrete Batterie
+  kalibriert; bei einer anderen Zellenzahl/-chemie müssen die beiden
+  Konstanten (46 V/57,5 V) in `packages/nulleinspeisung.yaml` angepasst
+  werden.
 - Die Preis-Perzentil-Berechnung ist ein einfacher, robuster Ansatz ohne
   echte Optimierung über den gesamten Tagesverlauf (kein Solver, keine
   PV-Ertragsprognose) – bewusst so gewählt, um mit Bordmitteln

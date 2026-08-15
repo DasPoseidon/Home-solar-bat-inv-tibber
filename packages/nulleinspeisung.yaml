@@ -18,12 +18,19 @@
 # den ESPHome-Gerätenamen "esp_twizygarage_" vor die aus den Friendly Names
 # abgeleiteten Namen - unter Entwicklerwerkzeuge -> Zustände trotzdem
 # gegenprüfen, falls sich der ESPHome-Gerätename mal ändert):
-#   sensor.esp_twizygarage_akku_state_of_charge
+#   sensor.esp_twizygarage_akku_total_voltage
 #   sensor.esp_twizygarage_akku_charging_power
 #   sensor.esp_twizygarage_akku_discharging_power
 #   switch.esp_twizygarage_inverter_manual_mode
 #   number.esp_twizygarage_inverter_buffer
 #   number.esp_twizygarage_inverter_manual_power_demand
+#
+# SoC-Berechnung: Statt des vom JK-BMS gemeldeten SoC (sensor.esp_twizygarage_
+# akku_state_of_charge) wird als SoC-Wert für die gesamte Entscheidungslogik
+# ein aus der Akkuspannung berechneter "Fake-SoC" verwendet
+# (input_number.fakesoc, linear zwischen 46 V = 0 % und 57,5 V = 100 %). Wird
+# von der Automatisierung bei jedem Durchlauf aus
+# sensor.esp_twizygarage_akku_total_voltage neu berechnet und geschrieben.
 #
 # number.esp_twizygarage_inverter_max_power_demand wird von diesem Paket
 # NICHT verwaltet - die maximale Einspeiseleistung begrenzt der
@@ -52,6 +59,17 @@ input_boolean:
     initial: true
 
 input_number:
+  # --- SoC-Berechnung ---
+  fakesoc:
+    name: "Fake-SoC (spannungsbasiert)"
+    icon: mdi:battery-unknown
+    unit_of_measurement: "%"
+    min: 0
+    max: 100
+    step: 1
+    initial: 0
+    mode: box
+
   # --- Ein/Aus-Steuerung (manual_mode) ---
   nulleinspeisung_max_toggles_pro_tag:
     name: "Nulleinspeisung: Max. Umschaltungen pro Tag"
@@ -259,6 +277,12 @@ automation:
   # laden", sondern "wann die ohnehin vorhandene, tagsüber nachwachsende
   # Solarenergie einsetzen, um möglichst teure Netzstunden zu verdrängen".
   #
+  # Als "SoC" wird hier NICHT der vom JK-BMS gemeldete Wert verwendet,
+  # sondern ein spannungsbasierter Fake-SoC (input_number.fakesoc), der bei
+  # jedem Durchlauf aus sensor.esp_twizygarage_akku_total_voltage neu
+  # berechnet wird: fakesoc = floor((Spannung - 46) * 8,6956522), also
+  # linear 46 V = 0 % .. 57,5 V = 100 %, auf 0..100 geklemmt.
+  #
   # Dafür wird der aktuelle Tibber-Preis in ein Perzentil (0-100) unter allen
   # bekannten Preisen von heute+morgen eingeordnet (100 = teuerste bekannte
   # Stunde) und mit einer vom Akkustand abhängigen Schwelle verglichen:
@@ -378,7 +402,12 @@ automation:
           total_prices: "{{ price_entries | count }}"
           cheaper_count: "{{ price_entries | selectattr('price', 'lt', current_price) | list | count }}"
           preis_perzentil: "{{ (cheaper_count / (total_prices - 1) * 100) if total_prices > 1 else 50 }}"
-          soc: "{{ states('sensor.esp_twizygarage_akku_state_of_charge') | float(0) }}"
+          # --- Fake-SoC aus der Akkuspannung berechnen (statt BMS-SoC zu
+          # verwenden): 46 V = 0 %, 57,5 V = 100 %, linear. Geklemmt auf
+          # 0..100, da die Spannung außerhalb dieses Bereichs liegen kann.
+          spannung_akku: "{{ states('sensor.esp_twizygarage_akku_total_voltage') | float(0) }}"
+          fakesoc_berechnet: "{{ [[((spannung_akku - 46) * 8.6956522) | round(0, 'floor') | int, 0] | max, 100] | min }}"
+          soc: "{{ fakesoc_berechnet }}"
           # --- Solarprognose (forecast.solar) als Zuschlag auf den SoC ---
           prognose_entity: "{{ states('input_text.nulleinspeisung_solarprognose_entity_id') }}"
           prognose_rest_kwh: >-
@@ -406,6 +435,12 @@ automation:
           darf_toggeln: "{{ toggles_heute_wert < max_toggles }}"
           sekunden_seit_aenderung: "{{ (now() - states.switch.esp_twizygarage_inverter_manual_mode.last_changed).total_seconds() if states.switch.esp_twizygarage_inverter_manual_mode is not none else 999999 }}"
           standzeit_ok: "{{ sekunden_seit_aenderung >= ((states('input_number.nulleinspeisung_min_standzeit_minuten') | float(20)) * 60) }}"
+
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.fakesoc
+        data:
+          value: "{{ fakesoc_berechnet }}"
 
       - choose:
           # Nulleinspeisung einschalten = manual_mode AUS (automatische
