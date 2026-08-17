@@ -58,8 +58,8 @@ Laufzeitumgebung wie AppDaemon/pyscript/NodeRED nötig).
 ┌─────────────────┐        │                                      │
 │ Solarprognose     │──────▶│ 0) SoC = Fake-SoC aus Spannung       │
 │ (forecast.solar)  │        │    (BMS-SoC wird nicht genutzt)     │
-└─────────────────┘        │ 1) Preis-Perzentil (0-100%) unter   │
-                            │    allen bekannten Std. heute+morgen│
+└─────────────────┘        │ 1) Preis-Perzentil (0-100%), Zeit-  │
+                            │    raster (h/15min) autom. erkannt  │
                             │ 2) effektiver SoC = SoC + Prognose- │
                             │    Zuschlag (gedeckelt)             │
                             │ 3) Zielschwelle = 100 - eff. SoC    │
@@ -120,10 +120,26 @@ Der `soyosource_virtual_meter` hat zwei Betriebsarten:
   gehalten) unabhängig vom Hausverbrauch → effektiv "aus".
 
 Der aktuelle Tibber-Preis wird als **Perzentil** (0–100 %) unter allen
-bekannten Stundenpreisen von heute+morgen eingeordnet (100 % = teuerste
-bekannte Stunde), analog zur Preisabfrage im Twizy-Projekt per
+bekannten Preisen von heute+morgen eingeordnet (100 % = teuerster bekannter
+Zeitabschnitt), analog zur Preisabfrage im Twizy-Projekt per
 `tibber.get_prices` (kein eigener Preis-Cache nötig, die Tibber-Integration
 ruft die eigentliche API ohnehin nur ca. 1x/Tag intern ab).
+
+**Preis-Zeitraster (Stunden- oder Viertelstundenpreise):** Manche
+Tibber-Verträge rechnen viertelstündlich statt stündlich ab (PTU). Das
+Zeitraster wird deshalb bei jedem Durchlauf automatisch aus dem Abstand
+zwischen den von `tibber.get_prices` gelieferten Preiseinträgen erkannt
+(900 s = Viertelstundenpreise, 3600 s = Stundenpreise) – exakt das gleiche
+Verfahren wie im Schwesterprojekt
+[`twizy-ladeberechnung`](https://github.com/DasPoseidon/twizy-ladeberechnung)
+("Auto-detect Tibber price resolution"). Keine Einstellung nötig, und ein
+späterer Wechsel des Abrechnungszeitrasters durch Tibber wird automatisch
+mitgezogen. Ohne diese Erkennung würde ein hart auf Stunden fest verdrahtetes
+Bucketing bei einem Viertelstunden-Vertrag vier 15-Minuten-Preise in einen
+Stunden-Bucket zusammenfassen und für "der aktuelle Preis" immer nur den
+ersten der vier Werte liefern statt den tatsächlich gerade gültigen. Das
+erkannte Zeitraster ist zur Kontrolle im Status-Helfer
+(`input_text.nulleinspeisung_status`) sichtbar ("Preisraster …min").
 
 Die **Zielschwelle** ergibt sich aus dem aktuellen Akkustand:
 `Zielschwelle = 100 − effektiver SoC` (auf 5–95 begrenzt). Beispiele:

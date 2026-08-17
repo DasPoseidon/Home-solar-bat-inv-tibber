@@ -284,8 +284,13 @@ automation:
   # linear 46 V = 0 % .. 57,5 V = 100 %, auf 0..100 geklemmt.
   #
   # Dafür wird der aktuelle Tibber-Preis in ein Perzentil (0-100) unter allen
-  # bekannten Preisen von heute+morgen eingeordnet (100 = teuerste bekannte
-  # Stunde) und mit einer vom Akkustand abhängigen Schwelle verglichen:
+  # bekannten Preisen von heute+morgen eingeordnet (100 = teuerster bekannter
+  # Zeitabschnitt) und mit einer vom Akkustand abhängigen Schwelle
+  # verglichen. Das Preis-Zeitraster (Stunden- oder Viertelstundenpreise, je
+  # nach Tibber-Vertrag) wird dabei automatisch aus dem Abstand der
+  # gelieferten Preiseinträge erkannt (wie in twizy-ladeberechnung) - keine
+  # Einstellung nötig, funktioniert unverändert bei einem späteren Wechsel
+  # des Abrechnungszeitrasters:
   #   Zielschwelle = 100 - effektiver_SoC   (auf 5..95 begrenzt)
   # Bei niedrigem effektivem SoC (z. B. 20 %) liegt die Schwelle hoch (80) ->
   # es wird nur in den teuersten ~20 % der Stunden entladen, der Rest der
@@ -364,10 +369,12 @@ automation:
             data:
               date: "{{ heute_datum }}"
 
-      # Tibber-Stundenpreise heute+morgen abrufen (wie im Twizy-Projekt: die
-      # Tibber-Integration ruft die eigentliche API dabei nur auf, wenn die
-      # angefragten Daten nicht schon lokal vorliegen, ca. 1x/Tag -
-      # unabhängig davon, wie oft dieser Prüfzyklus läuft).
+      # Tibber-Preise heute+morgen abrufen (Stunden- oder
+      # Viertelstundenpreise, je nach Vertrag - siehe price_resolution_seconds
+      # unten). Wie im Twizy-Projekt: die Tibber-Integration ruft die
+      # eigentliche API dabei nur auf, wenn die angefragten Daten nicht schon
+      # lokal vorliegen, ca. 1x/Tag - unabhängig davon, wie oft dieser
+      # Prüfzyklus läuft.
       - service: tibber.get_prices
         continue_on_error: true
         data:
@@ -376,20 +383,49 @@ automation:
         response_variable: tibber_price_response
 
       - variables:
-          price_entries: >
+          # Bewusst NICHT fest auf Stundenpreise ausgelegt: Tibber-Verträge
+          # können auch viertelstündlich (PTU) abrechnen. Ein hartes // 3600
+          # würde dann vier 15-Minuten-Preise in einen Stunden-Bucket
+          # zusammenfassen und current_price zufällig (immer den ersten
+          # Treffer dieser Stunde) statt den tatsächlich aktuellen 15-Minuten-
+          # Preis liefern. Stattdessen wird das tatsächliche Preis-Zeitraster
+          # unten aus dem Abstand zwischen den gelieferten Preiseinträgen
+          # selbst erkannt (wie in twizy-ladeberechnung, "Auto-detect Tibber
+          # price resolution").
+          raw_price_points: >
             {% set ns = namespace(items=[]) %}
             {% set homes = (tibber_price_response.prices.values() | list) if (tibber_price_response is defined and tibber_price_response and tibber_price_response.prices is defined) else [] %}
             {% set raw_prices = homes[0] if homes else [] %}
             {% for e in raw_prices %}
               {% if e.price is defined and e.start_time is defined and e.price is not none %}
-                {% set eh = (as_datetime(e.start_time).timestamp() | int) // 3600 %}
-                {% set ns.items = ns.items + [{'epoch_hour': eh, 'price': e.price}] %}
+                {% set ns.items = ns.items + [{'epoch_seconds': (as_datetime(e.start_time).timestamp() | int), 'price': e.price}] %}
               {% endif %}
             {% endfor %}
+            {{ ns.items | sort(attribute='epoch_seconds') }}
+          # Kleinster positiver Abstand zwischen zwei aufeinanderfolgenden
+          # Preiseinträgen = Preis-Zeitraster (3600 = Stundenpreise, 900 =
+          # Viertelstundenpreise). Fallback 3600, falls (noch) zu wenige
+          # Preisdaten vorliegen, um das zu bestimmen (z. B. Tibber-Aussetzer).
+          price_resolution_seconds: >-
+            {% set ns = namespace(diffs=[]) %}
+            {% set secs = raw_price_points | map(attribute='epoch_seconds') | list %}
+            {% for i in range(1, secs | count) %}
+              {% set gap = secs[i] - secs[i-1] %}
+              {% if gap > 0 %}
+                {% set ns.diffs = ns.diffs + [gap] %}
+              {% endif %}
+            {% endfor %}
+            {{ (ns.diffs | min) if ns.diffs else 3600 }}
+          price_resolution_minutes: "{{ price_resolution_seconds / 60 }}"
+          current_epoch_slot: "{{ (now().timestamp() | int) // price_resolution_seconds }}"
+          price_entries: >
+            {% set ns = namespace(items=[]) %}
+            {% for p in raw_price_points %}
+              {% set ns.items = ns.items + [{'epoch_slot': (p.epoch_seconds // price_resolution_seconds), 'price': p.price}] %}
+            {% endfor %}
             {{ ns.items }}
-          current_epoch_hour: "{{ (now().timestamp() | int) // 3600 }}"
           current_price: >-
-            {% set matches = price_entries | selectattr('epoch_hour', 'eq', current_epoch_hour) | list %}
+            {% set matches = price_entries | selectattr('epoch_slot', 'eq', current_epoch_slot) | list %}
             {{ matches[0].price if matches else none }}
 
       - if:
@@ -536,6 +572,7 @@ automation:
         data:
           value: >-
             {{ (('Aktiv' if ist_aktiv else 'Inaktiv') ~
+                ' | Preisraster ' ~ (price_resolution_minutes | round(0) | int) ~ 'min' ~
                 ' | Preis-Perzentil ' ~ (preis_perzentil | round(0) | int) ~ '%' ~
                 ' | Zielschwelle ' ~ (ziel_schwelle | round(0) | int) ~ '%' ~
                 ' | SoC ' ~ (soc | round(0) | int) ~ '%' ~
