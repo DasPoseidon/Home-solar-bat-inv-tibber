@@ -244,11 +244,24 @@ Leistungssensoren, in kWh) für den Home-Assistant-**Energie**-Bereich unter
 Der Netzbezug wird bereits über die vorhandene Tibber-Pulse-/Smartmeter-
 Integration (`sensor.ltibber_0100100700ff`) im Energie-Dashboard erfasst und
 muss dort nur einmal als Netzbezugssensor eingetragen werden – dieses
-Package fügt keinen zusätzlichen Netzsensor hinzu. Eine echte
-Solarertrags-Aufschlüsselung (getrennt von "was in die Batterie floss") ist
-mit den vorhandenen ESPHome-Sensoren nicht möglich, da kein eigener
-PV-Ertragssensor vorhanden ist – nur ein zusätzlicher PV-Zähler könnte das
-liefern.
+Package fügt keinen zusätzlichen Netzsensor hinzu (und **nicht** den
+Momentanleistungssensor `sensor.esp_twizygarage_inverter_smartmeter_
+instantaneous_power` dafür verwenden, das ist ein W-Sensor, kein kWh-Zähler).
+Eine echte Solarertrags-Aufschlüsselung (getrennt von "was in die Batterie
+floss") ist mit den vorhandenen ESPHome-Sensoren nicht möglich, da kein
+eigener PV-Ertragssensor vorhanden ist – nur ein zusätzlicher PV-Zähler
+könnte das liefern.
+
+**Wichtig gegen ein irreführendes Sankey-Diagramm:** Home Assistant hat
+keine Einstellung "diese Batterie kann nur von Solar geladen werden" – ohne
+konfigurierte Solarquelle interpretiert das Energie-Dashboard jede
+Batterie-Ladeenergie mangels Alternative als vom Netz geladen und zeigt
+einen (physikalisch unmöglichen) Netz→Batterie-Fluss an. Da die Solarpanele
+in diesem Aufbau ausschließlich über die Batterie gehen (kein direkter
+PV→Haus-Pfad), lässt sich das beheben, indem man `sensor.akku_energie_geladen`
+**zusätzlich** als Solarproduktions-Quelle einträgt (Einstellungen → Energie
+→ "Solar-Panels hinzufügen") – die geladene Batterieenergie *ist* hier die
+Solarproduktion, also keine Doppelzählung.
 
 Falls Home Assistant die Gerätklasse der beiden neuen Sensoren nicht
 automatisch als "Energie" erkennt, im Entity-Einstellungsdialog (Zahnrad-
@@ -289,7 +302,11 @@ Energie-Dashboard ausgewählt werden können.
    bearbeiten → ⋮ → Raw-Konfigurationseditor → Inhalt einfügen).
 6. Unter **Einstellungen → Energie** im Bereich "Batteriesysteme"
    `sensor.akku_energie_geladen` (wird geladen) und
-   `sensor.akku_energie_entladen` (wird entladen) eintragen.
+   `sensor.akku_energie_entladen` (wird entladen) eintragen. Zusätzlich
+   `sensor.akku_energie_geladen` auch als **Solarproduktions**-Quelle
+   eintragen ("Solar-Panels hinzufügen") – sonst zeigt das Sankey-Diagramm
+   mangels Solarquelle einen irreführenden Netz→Batterie-Fluss an, siehe
+   "Energie-Dashboard-Sensoren" oben.
 7. Falls forecast.solar genutzt wird: im Dashboard unter "Einstellungen –
    Solarprognose" die tatsächliche Entity-ID des forecast.solar-
    Prognosesensors eintragen (Default-Vermutung
