@@ -416,7 +416,6 @@ automation:
               {% endif %}
             {% endfor %}
             {{ (ns.diffs | min) if ns.diffs else 3600 }}
-          price_resolution_minutes: "{{ price_resolution_seconds / 60 }}"
           current_epoch_slot: "{{ (now().timestamp() | int) // price_resolution_seconds }}"
           price_entries: >
             {% set ns = namespace(items=[]) %}
@@ -572,10 +571,6 @@ automation:
         data:
           value: >-
             {{ (('Aktiv' if ist_aktiv else 'Inaktiv') ~
-                ' | Preisraster ' ~ (price_resolution_minutes | round(0) | int) ~ 'min' ~
-                ' | Preis-Perzentil ' ~ (preis_perzentil | round(0) | int) ~ '%' ~
                 ' | Zielschwelle ' ~ (ziel_schwelle | round(0) | int) ~ '%' ~
-                ' | SoC ' ~ (soc | round(0) | int) ~ '%' ~
-                ' | Prognose +' ~ (prognose_einfluss_prozentpunkte | round(0) | int) ~ '%pt (' ~ (prognose_rest_kwh | round(1)) ~ ' kWh)' ~
-                ' | Puffer ' ~ (puffer_aktuell | round(0) | int) ~ 'W' ~
+                ' | Prognose ' ~ (prognose_rest_kwh | round(1)) ~ ' kWh' ~
                 ' | Umschaltungen heute ' ~ (toggles_heute_wert | round(0) | int) ~ '/' ~ (max_toggles | round(0) | int))[:255] }}

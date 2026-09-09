@@ -137,9 +137,7 @@ späterer Wechsel des Abrechnungszeitrasters durch Tibber wird automatisch
 mitgezogen. Ohne diese Erkennung würde ein hart auf Stunden fest verdrahtetes
 Bucketing bei einem Viertelstunden-Vertrag vier 15-Minuten-Preise in einen
 Stunden-Bucket zusammenfassen und für "der aktuelle Preis" immer nur den
-ersten der vier Werte liefern statt den tatsächlich gerade gültigen. Das
-erkannte Zeitraster ist zur Kontrolle im Status-Helfer
-(`input_text.nulleinspeisung_status`) sichtbar ("Preisraster …min").
+ersten der vier Werte liefern statt den tatsächlich gerade gültigen.
 
 Die **Zielschwelle** ergibt sich aus dem aktuellen Akkustand:
 `Zielschwelle = 100 − effektiver SoC` (auf 5–95 begrenzt). Beispiele:
